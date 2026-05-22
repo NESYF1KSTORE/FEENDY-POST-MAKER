@@ -25,10 +25,10 @@
   1. Перешлите любое сообщение из канала боту [@userinfobot](https://t.me/userinfobot)
   2. Скопируйте ID (формат: `-1001234567890`)
 
-### 3. Получите OpenAI API ключ
+### 3. Получите DeepSeek API ключ
 
-1. Зарегистрируйтесь на [platform.openai.com](https://platform.openai.com)
-2. Перейдите в [API Keys](https://platform.openai.com/api-keys)
+1. Зарегистрируйтесь на [platform.deepseek.com](https://platform.deepseek.com)
+2. Перейдите в [API Keys](https://platform.deepseek.com/api_keys)
 3. Создайте новый ключ
 
 ### 4. Добавьте секреты в GitHub
@@ -39,7 +39,7 @@
 |--------|----------|--------|
 | `TELEGRAM_BOT_TOKEN` | Токен бота от BotFather | `123456789:ABCdef...` |
 | `TELEGRAM_CHANNEL_ID` | ID или username канала | `@my_vpn_channel` |
-| `OPENAI_API_KEY` | API ключ OpenAI | `sk-...` |
+| `DEEPSEEK_API_KEY` | API ключ DeepSeek | `sk-...` |
 
 ### 5. Запустите!
 
@@ -61,7 +61,7 @@
 
 | Переменная | По умолчанию | Описание |
 |-----------|-------------|----------|
-| `OPENAI_MODEL` | `gpt-4o-mini` | Модель OpenAI |
+| `DEEPSEEK_MODEL` | `deepseek-chat` | Модель DeepSeek |
 
 Также можно изменить через переменные окружения в workflow:
 
