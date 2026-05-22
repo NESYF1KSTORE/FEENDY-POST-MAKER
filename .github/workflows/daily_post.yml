@@ -1,0 +1,47 @@
+name: "📝 Daily Post"
+
+on:
+  schedule:
+    # Post 3 times per day (UTC): 8:00, 14:00, 20:00
+    - cron: "0 8 * * *"
+    - cron: "0 14 * * *"
+    - cron: "0 20 * * *"
+  workflow_dispatch: # Manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate and post content
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-4o-mini' }}
+          DATA_DIR: data
+        run: python main.py
+
+      - name: Commit analytics data
+        run: |
+          git config user.name "Marketing Bot"
+          git config user.email "bot@vpn-marketing-machine"
+          git add data/ || true
+          git diff --staged --quiet || git commit -m "📊 Update analytics data [skip ci]"
+          git push || true

@@ -1,0 +1,44 @@
+name: "📊 Weekly Report"
+
+on:
+  schedule:
+    # Every Sunday at 18:00 UTC
+    - cron: "0 18 * * 0"
+  workflow_dispatch: # Manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate and send weekly report
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DATA_DIR: data
+        run: python report.py
+
+      - name: Commit report files
+        run: |
+          git config user.name "Marketing Bot"
+          git config user.email "bot@vpn-marketing-machine"
+          git add data/ || true
+          git diff --staged --quiet || git commit -m "📊 Weekly report [skip ci]"
+          git push || true
