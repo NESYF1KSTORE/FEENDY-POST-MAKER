@@ -1,4 +1,4 @@
-"""AI content generator — creates Telegram posts about VPN/security topics."""
+"""AI content generator — creates Telegram posts about VPN/security topics using DeepSeek."""
 
 from __future__ import annotations
 
@@ -10,9 +10,10 @@ from typing import List, Optional
 from openai import OpenAI
 
 from src.config import (
+    DEEPSEEK_API_KEY,
+    DEEPSEEK_BASE_URL,
+    DEEPSEEK_MODEL,
     MAX_POST_LENGTH,
-    OPENAI_API_KEY,
-    OPENAI_MODEL,
     POST_TYPES,
     VPN_TOPICS,
 )
@@ -63,16 +64,19 @@ TOPIC_POST_PROMPT = """Создай оригинальный пост для Tel
 
 
 class ContentGenerator:
-    """Generates Telegram posts using OpenAI API."""
+    """Generates Telegram posts using DeepSeek API."""
 
     def __init__(self, api_key: Optional[str] = None) -> None:
-        self.api_key = api_key or OPENAI_API_KEY
+        self.api_key = api_key or DEEPSEEK_API_KEY
         if not self.api_key:
             raise ValueError(
-                "OpenAI API key is required. "
-                "Set OPENAI_API_KEY environment variable."
+                "DeepSeek API key is required. "
+                "Set DEEPSEEK_API_KEY environment variable."
             )
-        self.client = OpenAI(api_key=self.api_key)
+        self.client = OpenAI(
+            api_key=self.api_key,
+            base_url=DEEPSEEK_BASE_URL,
+        )
 
     def generate_from_news(self, article: NewsArticle) -> str:
         """Generate a Telegram post based on a news article."""
@@ -115,7 +119,7 @@ class ContentGenerator:
         """Call OpenAI API to generate content."""
         try:
             response = self.client.chat.completions.create(
-                model=OPENAI_MODEL,
+                model=DEEPSEEK_MODEL,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
