@@ -1,113 +1,162 @@
-# 🚀 VPN Marketing Machine
+# 🏠 Циан — Telegram Mini App
 
-Автономная маркетинг-машина для продвижения VPN-сервиса через Telegram.
+Полноценный клон Циан в виде Telegram Mini App. Поиск и аренда/покупка недвижимости прямо в Telegram.
 
-## Что делает
+## Возможности
 
-- **📰 Ищет новости** — парсит RSS-ленты по кибербезопасности, VPN, приватности
-- **✍️ Генерирует контент** — с помощью AI создаёт посты на русском языке
-- **📤 Постит в Telegram** — автоматически публикует 3 поста в день (8:00, 14:00, 20:00 UTC)
-- **📊 Еженедельная аналитика** — каждое воскресенье отправляет отчёт с метриками канала
+- 🔍 **Поиск** — по типу сделки, количеству комнат, цене, площади, метро, району
+- 🗺 **Карта** — все объекты на интерактивной карте (Leaflet/OpenStreetMap)
+- ❤️ **Избранное** — сохранение понравившихся объектов
+- 💬 **Чат** — переписка с продавцами/арендодателями (Socket.IO, real-time)
+- 📝 **Подача объявлений** — публикация своих объектов
+- 📱 **Telegram Mini App** — нативная интеграция с Telegram WebApp SDK
+- 🤖 **Telegram бот** — команды /start, /search, /favorites, /create, /help
+- 🕷 **Парсер Циан** — автоматический сбор объявлений с cian.ru
 
-## Быстрый старт
+## Стек
 
-### 1. Создайте Telegram-бота
+### Backend
+- **Node.js** + **Express**
+- **SQLite** (better-sqlite3) — лёгкая встроенная БД
+- **Socket.IO** — real-time чат
+- **Grammy** — Telegram Bot API
+- **Cheerio** + **Axios** — парсинг Циан
 
-1. Откройте [@BotFather](https://t.me/BotFather) в Telegram
-2. Отправьте `/newbot` и следуйте инструкциям
-3. Скопируйте **токен бота** (формат: `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`)
-4. Добавьте бота **администратором** в ваш Telegram-канал
+### Frontend
+- **React 18** + **Vite**
+- **React Router** — маршрутизация
+- **Leaflet** + **React-Leaflet** — интерактивная карта
+- **Socket.IO Client** — real-time чат
+- **Lucide React** — иконки
+- **@twa-dev/sdk** — Telegram WebApp SDK
 
-### 2. Получите ID канала
+## Установка
 
-- Для публичных каналов: `@username_канала` (например `@my_vpn_channel`)
-- Для приватных каналов:
-  1. Перешлите любое сообщение из канала боту [@userinfobot](https://t.me/userinfobot)
-  2. Скопируйте ID (формат: `-1001234567890`)
+### 1. Backend
 
-### 3. Получите DeepSeek API ключ
-
-1. Зарегистрируйтесь на [platform.deepseek.com](https://platform.deepseek.com)
-2. Перейдите в [API Keys](https://platform.deepseek.com/api_keys)
-3. Создайте новый ключ
-
-### 4. Добавьте секреты в GitHub
-
-Перейдите в **Settings → Secrets and variables → Actions** вашего репозитория и добавьте:
-
-| Секрет | Описание | Пример |
-|--------|----------|--------|
-| `TELEGRAM_BOT_TOKEN` | Токен бота от BotFather | `123456789:ABCdef...` |
-| `TELEGRAM_CHANNEL_ID` | ID или username канала | `@my_vpn_channel` |
-| `DEEPSEEK_API_KEY` | API ключ DeepSeek | `sk-...` |
-
-### 5. Запустите!
-
-Маркетинг-машина запустится автоматически по расписанию. Для ручного запуска:
-
-1. Перейдите в **Actions** → **📝 Daily Post**
-2. Нажмите **Run workflow**
-
-## Расписание
-
-| Действие | Расписание | Описание |
-|----------|-----------|----------|
-| Публикация поста | 08:00, 14:00, 20:00 UTC ежедневно | Генерация и публикация контента |
-| Еженедельный отчёт | Воскресенье 18:00 UTC | Анализ показателей канала |
-
-## Настройка
-
-Через **Settings → Variables → Actions** можно добавить переменные:
-
-| Переменная | По умолчанию | Описание |
-|-----------|-------------|----------|
-| `DEEPSEEK_MODEL` | `deepseek-chat` | Модель DeepSeek |
-
-Также можно изменить через переменные окружения в workflow:
-
-- `POSTS_PER_DAY` — количество постов в день
-- `MAX_POST_LENGTH` — макс. длина поста
-- `POST_LANGUAGE` — язык постов (`ru`)
-
-## Структура проекта
-
-```
-vpn-marketing-machine/
-├── .github/workflows/
-│   ├── daily_post.yml      # Workflow ежедневных постов
-│   └── weekly_report.yml   # Workflow еженедельного отчёта
-├── src/
-│   ├── config.py           # Конфигурация
-│   ├── scraper.py          # Парсер новостей
-│   ├── generator.py        # Генератор контента (AI)
-│   ├── telegram_bot.py     # Telegram Bot API
-│   └── analytics.py        # Аналитика канала
-├── data/                   # Данные аналитики (автогенерируемые)
-├── main.py                 # Точка входа — ежедневный пост
-├── report.py               # Точка входа — еженедельный отчёт
-├── requirements.txt        # Зависимости Python
-└── README.md
+```bash
+cd backend
+cp .env.example .env
+# Заполните TELEGRAM_BOT_TOKEN в .env
+npm install
+npm run seed    # Наполнить базу тестовыми данными (100 объявлений)
+npm run dev     # Запуск сервера на порту 3000
 ```
 
-## Типы контента
+### 2. Frontend
 
-Бот генерирует разнообразный контент:
+```bash
+cd frontend
+npm install
+npm run dev     # Запуск на порту 5173
+```
 
-- **📰 Новости** — на основе реальных новостей кибербезопасности
-- **💡 Советы** — практические советы по безопасности
-- **📚 Образовательные посты** — объяснение технологий
-- **⚖️ Сравнения** — сравнение VPN-протоколов и технологий
-- **🔍 Факты** — интересные факты о кибербезопасности
+### 3. Парсинг с Циан
 
-## Источники новостей
+```bash
+cd backend
+npm run parse   # Собрать объявления с cian.ru
+```
 
-- BleepingComputer
-- The Hacker News
-- Krebs on Security
-- Dark Reading
-- Schneier on Security
-- Sophos Naked Security
-- Wired Security
+## Структура
+
+```
+├── backend/
+│   ├── src/
+│   │   ├── index.js           # Express + Socket.IO сервер
+│   │   ├── config.js          # Конфигурация
+│   │   ├── database.js        # SQLite (схема, индексы)
+│   │   ├── seed.js            # Генератор тестовых данных
+│   │   ├── routes/
+│   │   │   ├── listings.js    # CRUD объявлений + поиск + фильтры
+│   │   │   ├── favorites.js   # Избранное
+│   │   │   ├── chats.js       # Чаты и сообщения
+│   │   │   └── users.js       # Авторизация через Telegram
+│   │   ├── models/
+│   │   │   ├── listing.js     # Модель объявления
+│   │   │   ├── favorite.js    # Модель избранного
+│   │   │   ├── chat.js        # Модель чата/сообщений
+│   │   │   └── user.js        # Модель пользователя
+│   │   ├── parser/
+│   │   │   └── cian.js        # Парсер Циан
+│   │   ├── bot/
+│   │   │   └── telegram.js    # Telegram бот (Grammy)
+│   │   └── middleware/
+│   │       └── auth.js        # Авторизация
+│   ├── package.json
+│   └── .env.example
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx            # Роутинг
+│   │   ├── main.jsx           # Точка входа
+│   │   ├── pages/
+│   │   │   ├── HomePage.jsx       # Главная + поиск + фильтры
+│   │   │   ├── ListingPage.jsx    # Детали объявления
+│   │   │   ├── MapPage.jsx        # Карта
+│   │   │   ├── FavoritesPage.jsx  # Избранное
+│   │   │   ├── ChatsPage.jsx      # Список чатов
+│   │   │   ├── ChatPage.jsx       # Чат (real-time)
+│   │   │   ├── CreateListingPage.jsx  # Подача объявления
+│   │   │   ├── ProfilePage.jsx    # Профиль
+│   │   │   └── MyListingsPage.jsx # Мои объявления
+│   │   ├── components/
+│   │   │   ├── BottomNav.jsx      # Нижняя навигация
+│   │   │   ├── ListingCard.jsx    # Карточка объявления
+│   │   │   └── FilterPanel.jsx    # Панель фильтров
+│   │   ├── hooks/
+│   │   │   └── useTelegram.js     # Хук для Telegram WebApp
+│   │   ├── utils/
+│   │   │   ├── api.js             # Axios клиент
+│   │   │   └── format.js          # Форматирование
+│   │   └── styles/
+│   │       └── global.css         # Стили в стиле Циан
+│   ├── index.html
+│   ├── vite.config.js
+│   └── package.json
+└── README-CIAN.md
+```
+
+## API Endpoints
+
+### Объявления
+- `GET /api/listings` — поиск с фильтрами
+- `GET /api/listings/map` — объекты для карты
+- `GET /api/listings/my` — мои объявления
+- `GET /api/listings/:id` — детали
+- `POST /api/listings` — создать
+- `PATCH /api/listings/:id` — обновить
+- `DELETE /api/listings/:id` — удалить
+
+### Избранное
+- `GET /api/favorites` — список избранного
+- `POST /api/favorites/:listingId` — добавить
+- `DELETE /api/favorites/:listingId` — удалить
+
+### Чаты
+- `GET /api/chats` — список чатов
+- `POST /api/chats` — создать чат
+- `GET /api/chats/:id/messages` — сообщения
+- `POST /api/chats/:id/messages` — отправить
+- `GET /api/chats/unread` — непрочитанные
+
+### Пользователи
+- `POST /api/users/auth` — авторизация
+- `GET /api/users/me` — профиль
+
+## Команды бота
+
+- `/start` — Открыть Mini App
+- `/search` — Поиск недвижимости
+- `/favorites` — Избранное
+- `/create` — Подать объявление
+- `/help` — Помощь
+
+## Деплой
+
+1. Задеплойте backend (Render, Railway, VPS)
+2. Соберите frontend: `cd frontend && npm run build`
+3. Настройте `MINI_APP_URL` в .env бота
+4. Зарегистрируйте Mini App через [@BotFather](https://t.me/BotFather) → /newapp
 
 ## Лицензия
 
