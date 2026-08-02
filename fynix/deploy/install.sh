@@ -137,8 +137,9 @@ for attempt in $(seq 1 60); do
 done
 
 log "creating the first tenant and admin"
+# --quiet: the password must not land in the deploy transcript. It is in .env.
 docker compose exec -T api python -m app.cli bootstrap \
-  --slug fynix --tenant-name "FYNIX STUDIO" || true
+  --slug fynix --tenant-name "FYNIX STUDIO" --quiet || true
 
 log "done"
 cat <<EOF

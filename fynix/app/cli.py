@@ -95,6 +95,13 @@ def cmd_bootstrap(args: argparse.Namespace) -> int:
             payload={"email": email},
         )
 
+    if args.quiet:
+        # Deploy transcripts (CI logs, SSH scrollback, screenshots) outlive the
+        # session they are printed in, so the password is never echoed there.
+        # It is already in .env, which is mode 600 on the server.
+        print(f"admin created: {email} (password is in .env — do not print it)")
+        return 0
+
     print("\n--- admin credentials (shown once) ---")
     print(f"email:    {email}")
     print(f"password: {password}")
@@ -358,6 +365,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--password", default="")
     p.add_argument("--full-name", default="Platform Admin")
     p.add_argument("--budget", type=float, default=50000.0)
+    p.add_argument(
+        "--quiet",
+        action="store_true",
+        help="do not echo the admin password (use in any automated deploy)",
+    )
     p.set_defaults(func=cmd_bootstrap)
 
     p = sub.add_parser("demo", help="run one project end to end offline")

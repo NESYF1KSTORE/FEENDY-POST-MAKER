@@ -1,4 +1,6 @@
-# syntax=docker/dockerfile:1
+# No `# syntax=` directive on purpose: it makes the build fetch a frontend image
+# first, which fails on hosts with a restricted egress policy. Nothing here needs
+# BuildKit-specific syntax.
 FROM python:3.12-slim AS base
 
 ENV PYTHONUNBUFFERED=1 \
