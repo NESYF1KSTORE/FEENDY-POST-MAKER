@@ -338,6 +338,90 @@ def cmd_verify_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_telegram_code(args: argparse.Namespace) -> int:
+    """Issue a single-use code that links a Telegram chat to a user."""
+    from app.telegram import linking
+
+    with session_scope() as session:
+        tenant = session.execute(
+            select(Tenant).where(Tenant.slug == args.slug)
+        ).scalar_one_or_none()
+        if tenant is None:
+            print(f"tenant '{args.slug}' not found", file=sys.stderr)
+            return 1
+        user = session.execute(
+            select(User).where(
+                User.tenant_id == tenant.id, User.email == args.email.lower().strip()
+            )
+        ).scalar_one_or_none()
+        if user is None:
+            print(f"user '{args.email}' not found in tenant '{args.slug}'", file=sys.stderr)
+            return 1
+        code = linking.issue_code(
+            session, tenant_id=tenant.id, user_id=user.id, issued_by="cli"
+        )
+        value, expires = code.code, code.expires_at
+
+    print(f"\nSend this to the bot from {args.email}'s Telegram account:\n")
+    print(f"    /link {value}\n")
+    print(f"Valid until {expires.isoformat()} — single use.\n")
+    return 0
+
+
+def cmd_telegram_bot(_args: argparse.Namespace) -> int:
+    """Run the bot in long-polling mode (no public HTTPS endpoint needed)."""
+    from app.telegram.poller import Poller
+
+    Poller().run_forever()
+    return 0
+
+
+def cmd_telegram_webhook(args: argparse.Namespace) -> int:
+    """Point Telegram at this deployment's webhook endpoint."""
+    import secrets as _secrets
+
+    from app.telegram.client import TelegramClient
+
+    settings = get_settings()
+    client = TelegramClient()
+    if not client.configured:
+        print("TELEGRAM_BOT_TOKEN is not set", file=sys.stderr)
+        return 1
+
+    if args.delete:
+        client.delete_webhook()
+        print("webhook deleted; the bot can now be run in polling mode")
+        return 0
+
+    secret = settings.telegram_webhook_secret
+    if not secret:
+        secret = _secrets.token_urlsafe(32)
+        print(
+            "TELEGRAM_WEBHOOK_SECRET is not set. Add this to .env and restart the API,\n"
+            "otherwise the endpoint will reject Telegram's requests:\n"
+            f"\n    TELEGRAM_WEBHOOK_SECRET={secret}\n",
+            file=sys.stderr,
+        )
+        return 1
+
+    base = (args.base_url or settings.base_url).rstrip("/")
+    if not base.startswith("https://"):
+        print(
+            f"Telegram requires HTTPS for webhooks, got '{base}'.\n"
+            "Either set up a domain with TLS, or run the bot in polling mode:\n"
+            "    docker compose exec api python -m app.cli telegram-bot",
+            file=sys.stderr,
+        )
+        return 1
+
+    url = f"{base}/v1/telegram/webhook"
+    client.set_webhook(url, secret)
+    info = client.get_webhook_info()
+    print(f"webhook set: {url}")
+    print(f"telegram reports: {info.get('url')} pending={info.get('pending_update_count')}")
+    return 0
+
+
 def cmd_reconcile(_args: argparse.Namespace) -> int:
     from app.core import idempotency
     from app.orchestrator import events
@@ -396,6 +480,19 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("verify-audit", help="recompute the audit hash chain")
     p.add_argument("--slug", default="fynix")
     p.set_defaults(func=cmd_verify_audit)
+
+    p = sub.add_parser("telegram-code", help="issue a Telegram link code for a user")
+    p.add_argument("--email", required=True)
+    p.add_argument("--slug", default="fynix")
+    p.set_defaults(func=cmd_telegram_code)
+
+    p = sub.add_parser("telegram-bot", help="run the bot in long-polling mode")
+    p.set_defaults(func=cmd_telegram_bot)
+
+    p = sub.add_parser("telegram-webhook", help="register or delete the Telegram webhook")
+    p.add_argument("--base-url", default="", help="defaults to FYNIX_BASE_URL")
+    p.add_argument("--delete", action="store_true")
+    p.set_defaults(func=cmd_telegram_webhook)
 
     p = sub.add_parser("reconcile", help="clean up orphans and dispatch events")
     p.set_defaults(func=cmd_reconcile)

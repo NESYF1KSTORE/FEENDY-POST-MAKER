@@ -338,6 +338,16 @@ APPROVAL_MATRIX: dict[str, ApprovalRequirement] = {
 }
 
 
+#: Approving one of these is itself a privileged action, so the approver needs a
+#: second factor (NFR-007). Without this, `approvals.decide` would only check
+#: the role and a stolen session could sign off a production deploy.
+APPROVAL_MFA_REQUIRED = frozenset({"deploy_prod", "budget_change", "sensitive_data_access"})
+
+
+def approval_requires_mfa(subject_type: str) -> bool:
+    return subject_type in APPROVAL_MFA_REQUIRED
+
+
 def approval_requirement(subject_type: str) -> ApprovalRequirement:
     try:
         return APPROVAL_MATRIX[subject_type]

@@ -48,6 +48,11 @@ from app.models.project import (
     Task,
     TaskDependency,
 )
+from app.models.telegram import (
+    TelegramChat,
+    TelegramLinkCode,
+    TelegramUpdateCursor,
+)
 
 __all__ = [
     "AgentRun",
@@ -90,6 +95,9 @@ __all__ = [
     "Task",
     "TaskDependency",
     "TaskStatus",
+    "TelegramChat",
+    "TelegramLinkCode",
+    "TelegramUpdateCursor",
     "Tenant",
     "User",
     "WebhookSubscription",

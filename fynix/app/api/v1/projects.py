@@ -20,7 +20,7 @@ from app.api.schemas import (
     StateTransitionRequest,
     TaskOut,
 )
-from app.core import audit, idempotency
+from app.core import idempotency
 from app.core.errors import NotFoundError, ValidationError
 from app.core.policy import Resource, authorize
 from app.core.tenancy import get_scoped, scoped
@@ -30,6 +30,7 @@ from app.models.project import BlueprintVersion, BriefVersion, Project, Task
 from app.orchestrator import dag, handlers, jobs
 from app.orchestrator import state_machine as fsm
 from app.services import budgets as budgets_service
+from app.services import projects as projects_service
 from app.services import repositories as repo_service
 
 router = APIRouter(prefix="/v1/projects", tags=["projects"])
@@ -47,12 +48,6 @@ def create_project(
     response: Response,
     idempotency_key: IdempotencyHeader = None,
 ) -> Project:
-    authorize(
-        principal,
-        "project:create",
-        Resource(type="project", tenant_id=principal.tenant_id),
-    )
-
     body = payload.model_dump()
     replay = idempotency.lookup(
         session,
@@ -65,32 +60,15 @@ def create_project(
         response.headers["Idempotent-Replay"] = "true"
         return get_scoped(session, Project, principal.tenant_id, replay.response_body["id"])
 
-    project = Project(
-        tenant_id=principal.tenant_id,
+    project = projects_service.create_project(
+        session,
+        principal=principal,
         name=payload.name,
         golden_path=payload.golden_path,
-        owner_user_id=payload.owner_user_id or principal.user_id,
+        owner_user_id=payload.owner_user_id,
         data_class=payload.data_class,
         budget_rub=payload.budget_rub,
         source=payload.source,
-    )
-    session.add(project)
-    session.flush()
-
-    budgets_service.ensure_budget(
-        session,
-        tenant_id=principal.tenant_id,
-        project_id=project.id,
-        limit=payload.budget_rub or None,
-    )
-    audit.record(
-        session,
-        tenant_id=principal.tenant_id,
-        action="project.created",
-        actor_id=principal.user_id,
-        resource_type="project",
-        resource_id=project.id,
-        payload={"name": project.name, "golden_path": project.golden_path},
     )
     idempotency.store(
         session,
@@ -199,11 +177,6 @@ def create_brief(
 ):
     """Queue brief analysis. Returns an operation handle (spec §9.1 async)."""
     project = _load(session, principal, project_id)
-    authorize(
-        principal,
-        "brief:write",
-        Resource(type="brief", tenant_id=project.tenant_id, project_id=project.id),
-    )
 
     body = payload.model_dump()
     replay = idempotency.lookup(
@@ -216,29 +189,14 @@ def create_brief(
     if replay is not None:
         return get_scoped(session, Operation, principal.tenant_id, replay.response_body["id"])
 
-    operation = Operation(
-        tenant_id=principal.tenant_id, project_id=project.id, kind="brief.analyze"
-    )
-    session.add(operation)
-    session.flush()
-
-    job = jobs.enqueue(
+    operation = projects_service.submit_brief(
         session,
-        tenant_id=principal.tenant_id,
-        kind=handlers.INTAKE_ANALYZE,
-        project_id=project.id,
-        payload={
-            "project_id": project.id,
-            "raw_text": payload.raw_text,
-            "answers": payload.answers,
-            "actor_id": principal.user_id,
-            "operation_id": operation.id,
-        },
-        correlation_id=operation.id,
+        principal=principal,
+        project=project,
+        raw_text=payload.raw_text,
+        answers=payload.answers,
+        source="portal",
     )
-    operation.job_id = job.id
-    session.flush()
-
     idempotency.store(
         session,
         tenant_id=principal.tenant_id,

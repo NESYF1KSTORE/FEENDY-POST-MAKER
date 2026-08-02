@@ -16,6 +16,7 @@ from app.core.errors import FynixError
 from app.core.logging import clear_context, configure, get_logger, set_correlation_id
 from app.notifications import service as notifications
 from app.portal import routes as portal_routes
+from app.telegram import webhook as telegram_webhook
 
 log = get_logger("fynix.api")
 
@@ -119,6 +120,7 @@ def create_app() -> FastAPI:
     app.include_router(delivery.router)
     app.include_router(admin.router)
     app.include_router(ops.router)
+    app.include_router(telegram_webhook.router)
     app.include_router(portal_routes.router)
 
     _ = settings

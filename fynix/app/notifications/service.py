@@ -17,8 +17,11 @@ from app.config import get_settings
 from app.core.logging import get_logger
 from app.core.redaction import redact_text
 from app.core.security import sign_webhook
-from app.models.base import utcnow
+from app.models.base import Role, utcnow
+from app.models.governance import Approval
+from app.models.identity import RoleBinding
 from app.models.messaging import NotificationLog, OutboxEvent, WebhookSubscription
+from app.models.telegram import TelegramChat
 from app.orchestrator import events
 
 log = get_logger("fynix.notify")
@@ -182,16 +185,104 @@ def deliver_webhooks(
     return delivered
 
 
+#: Which roles care about which event. An approval request is routed to the
+#: people who can actually decide it, rather than broadcast to one shared chat.
+EVENT_AUDIENCE: dict[str, tuple[Role, ...]] = {
+    events.BLUEPRINT_APPROVAL_REQUESTED: (Role.SOLUTION_ARCHITECT, Role.CLIENT_OWNER),
+    "approval.requested": (),  # resolved from the approval rows themselves
+    events.BUDGET_THRESHOLD_REACHED: (Role.FINANCE_ADMIN, Role.PROJECT_MANAGER),
+    events.QUALITY_GATE_FAILED: (Role.PROJECT_MANAGER, Role.DEVELOPER, Role.QA_ENGINEER),
+    events.INCIDENT_OPENED: (Role.DEVOPS_SRE, Role.PROJECT_MANAGER),
+    events.DEPLOYMENT_ROLLED_BACK: (Role.DEVOPS_SRE, Role.PROJECT_MANAGER),
+    events.RELEASE_CANDIDATE_CREATED: (Role.QA_ENGINEER, Role.PROJECT_MANAGER),
+}
+
+
+def _roles_for_event(session: Session, event: OutboxEvent) -> tuple[Role, ...]:
+    """Roles to notify. For approval requests, read them off the approvals."""
+    approval_ids = (event.payload or {}).get("approval_ids") or []
+    if approval_ids:
+        rows = (
+            session.execute(select(Approval).where(Approval.id.in_(approval_ids)))
+            .scalars()
+            .all()
+        )
+        roles = []
+        for row in rows:
+            try:
+                roles.append(Role(row.required_role))
+            except ValueError:
+                continue
+        if roles:
+            return tuple(dict.fromkeys(roles))
+    return EVENT_AUDIENCE.get(event.type, ())
+
+
+def _chats_for_roles(
+    session: Session, tenant_id: str, roles: tuple[Role, ...], project_id: str | None
+) -> list[str]:
+    """Linked Telegram chats of users holding any of `roles` in this tenant."""
+    if not roles:
+        return []
+    now = utcnow()
+    bindings = (
+        session.execute(
+            select(RoleBinding).where(
+                RoleBinding.tenant_id == tenant_id,
+                RoleBinding.role.in_([r.value for r in roles]),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    user_ids = {
+        b.user_id
+        for b in bindings
+        if (b.expires_at is None or b.expires_at > now)
+        # A project-scoped binding only counts for that project.
+        and (b.project_id is None or b.project_id == project_id)
+    }
+    if not user_ids:
+        return []
+
+    chats = (
+        session.execute(
+            select(TelegramChat).where(
+                TelegramChat.tenant_id == tenant_id,
+                TelegramChat.user_id.in_(user_ids),
+                TelegramChat.unlinked_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [chat.chat_id for chat in chats]
+
+
 def _on_event(session: Session, event: OutboxEvent) -> None:
     text = render(event)
     if text:
-        send_telegram(
-            session,
-            tenant_id=event.tenant_id,
-            text=text,
-            project_id=event.project_id,
-            event_type=event.type,
-        )
+        settings = get_settings()
+        targets: list[str] = []
+
+        roles = _roles_for_event(session, event)
+        targets.extend(_chats_for_roles(session, event.tenant_id, roles, event.project_id))
+
+        # The shared operations chat still sees everything, if configured.
+        if settings.telegram_chat_id:
+            targets.append(settings.telegram_chat_id)
+
+        # No linked chats and no shared chat: record the skip so a missed
+        # escalation is visible rather than silent.
+        for chat_id in dict.fromkeys(targets) or [""]:
+            send_telegram(
+                session,
+                tenant_id=event.tenant_id,
+                text=text,
+                chat_id=chat_id,
+                project_id=event.project_id,
+                event_type=event.type,
+            )
     deliver_webhooks(session, event)
 
 

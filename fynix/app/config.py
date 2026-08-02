@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     # --- notifications ---
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
+    # Echoed back by Telegram in every webhook request; the only proof the
+    # request really came from Telegram.
+    telegram_webhook_secret: str = Field(default="", alias="TELEGRAM_WEBHOOK_SECRET")
+    # "polling" works without a public HTTPS endpoint; "webhook" needs one.
+    telegram_mode: str = Field(default="polling", alias="TELEGRAM_MODE")
 
     # --- worker ---
     worker_concurrency: int = Field(default=4, alias="WORKER_CONCURRENCY")

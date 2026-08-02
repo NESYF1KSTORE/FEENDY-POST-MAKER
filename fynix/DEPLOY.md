@@ -271,6 +271,22 @@ echo '0 3 * * * cd /opt/fynix/fynix && docker compose exec -T postgres pg_dump -
 
 ---
 
+## Telegram-бот
+
+Подача брифов, статусы и утверждение blueprint прямо в Telegram. Домен для этого
+не нужен — бот работает в режиме polling сразу после установки:
+
+```bash
+cd /opt/fynix/fynix
+nano .env                                   # TELEGRAM_BOT_TOKEN=...
+docker compose --profile bot up -d bot
+docker compose exec api python -m app.cli telegram-code --email admin@fynix.local
+```
+
+Полная инструкция, границы прав и режим webhook — [TELEGRAM.md](TELEGRAM.md).
+
+---
+
 ## Первые шаги после установки
 
 1. Смените пароль администратора; включите MFA для привилегированных ролей.
@@ -279,7 +295,7 @@ echo '0 3 * * * cd /opt/fynix/fynix && docker compose exec -T postgres pg_dump -
    platform_admin постоянно — матрица согласований требует разных людей.
 3. Создайте проект и подайте бриф: `POST /v1/projects`, `POST /v1/projects/{id}/briefs`.
 4. Утвердите blueprint в портале — до этого production-код не генерируется.
-5. Настройте уведомления: `TELEGRAM_BOT_TOKEN` или `POST /v1/webhooks`.
+5. Поднимите бота (см. выше) или настройте webhooks: `POST /v1/webhooks`.
 
 ---
 

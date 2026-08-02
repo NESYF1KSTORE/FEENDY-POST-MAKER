@@ -22,6 +22,7 @@ from app.core.policy import (
     ApprovalRequirement,
     approval_expiry,
     approval_requirement,
+    approval_requires_mfa,
     can_decide,
 )
 from app.models.base import ApprovalStatus, Role, utcnow
@@ -172,6 +173,14 @@ def decide(
         raise ConflictError(
             "approval expired before it was decided",
             details={"reason": "approval_expired"},
+        )
+
+    # Signing off a production deploy or a budget increase is privileged in its
+    # own right, independent of the role that grants it (NFR-007).
+    if approval_requires_mfa(approval.subject_type) and not principal.mfa:
+        raise PermissionDenied(
+            f"approving '{approval.subject_type}' requires multi-factor authentication",
+            details={"reason": "mfa_required", "subject_type": approval.subject_type},
         )
 
     required_role = Role(approval.required_role)
