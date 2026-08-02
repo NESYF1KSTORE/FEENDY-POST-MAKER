@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Вход — FYNIX{% endblock %}
+{% block content %}
+<div class="card" style="max-width: 420px; margin: 60px auto;">
+  <h1>Вход в Control Plane</h1>
+  <p class="muted">Доступ выдаётся по ролям проекта. Все действия пишутся в audit log.</p>
+  {% if error %}<p class="pill bad" style="display:block; padding:10px;">{{ error }}</p>{% endif %}
+  <form method="post" action="/portal/login">
+    <p><label class="muted">Email</label><input type="email" name="email" required autofocus></p>
+    <p><label class="muted">Пароль</label><input type="password" name="password" required></p>
+    <button class="btn primary" type="submit">Войти</button>
+  </form>
+</div>
+{% endblock %}

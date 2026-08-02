@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Дашборд — FYNIX{% endblock %}
+{% block content %}
+
+<h1>Портфель проектов</h1>
+<p class="muted">Состояния S0–S8 по спецификации: каждый переход проходит exit gate и пишется в audit log.</p>
+
+{% if approvals %}
+<h2>Требуют решения</h2>
+<div class="card scroll">
+  <table>
+    <tr><th>Субъект</th><th>Роль</th><th>Проект</th><th>Создано</th><th></th></tr>
+    {% for a in approvals %}
+    <tr>
+      <td><code>{{ a.subject_type }}</code><br><span class="muted">{{ a.subject_id }}</span></td>
+      <td><span class="pill info">{{ a.required_role }}</span></td>
+      <td><a href="/portal/projects/{{ a.project_id }}">{{ a.project_id }}</a></td>
+      <td class="muted">{{ a.created_at.strftime('%d.%m %H:%M') }}</td>
+      <td>
+        <form class="inline" method="post" action="/portal/approvals/{{ a.id }}/decide">
+          <input type="hidden" name="decision" value="approve">
+          <button class="btn primary" type="submit">Утвердить</button>
+        </form>
+        <form class="inline" method="post" action="/portal/approvals/{{ a.id }}/decide">
+          <input type="hidden" name="decision" value="reject">
+          <button class="btn danger" type="submit">Отклонить</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{% if incidents %}
+<h2>Открытые инциденты</h2>
+<div class="card">
+  {% for i in incidents %}
+    <div style="padding:6px 0; border-bottom:1px solid var(--line);">
+      <span class="pill bad">{{ i.severity|upper }}</span> {{ i.title }}
+      <span class="muted"> · {{ i.created_at.strftime('%d.%m %H:%M') }}</span>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<h2>Проекты</h2>
+{% if not rows %}
+  <div class="card empty">Проектов пока нет. Создайте проект через API: <code>POST /v1/projects</code></div>
+{% endif %}
+{% for row in rows %}
+  {% set p = row.project %}
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+      <div>
+        <a href="/portal/projects/{{ p.id }}" style="font-size:17px; font-weight:600;">{{ p.name }}</a>
+        <div class="muted">{{ p.golden_path or 'golden path не выбран' }} · {{ p.id }}</div>
+      </div>
+      <div style="text-align:right;">
+        <span class="pill {% if p.state.startswith('S8') or p.state == 'CLOSED' %}ok{% elif p.state in ('CANCELLED','REJECTED') %}bad{% else %}info{% endif %}">{{ p.state }}</span>
+        <div class="muted">класс данных: {{ p.data_class }}</div>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:14px;">
+      <div>
+        <div class="muted">Задачи</div>
+        <div class="kpi">{{ row.progress.done }}/{{ row.progress.total }}</div>
+        <div class="bar"><i style="width: {{ row.progress.percent }}%"></i></div>
+      </div>
+      <div>
+        <div class="muted">Бюджет</div>
+        <div class="kpi">{{ row.budget.usage_pct }}%</div>
+        <div class="bar"><i style="width: {{ [row.budget.usage_pct, 100]|min }}%; background: {% if row.budget.level == 'hard' %}var(--bad){% elif row.budget.level == 'warning' %}var(--warn){% else %}var(--ok){% endif %};"></i></div>
+        <div class="muted">{{ row.budget.spent }} / {{ row.budget.limit }} ₽</div>
+      </div>
+      <div>
+        <div class="muted">Статус бюджета</div>
+        <div style="margin-top:8px;">
+          {% if row.budget.hard_stopped %}
+            <span class="pill bad">HARD STOP</span>
+          {% elif row.budget.level == 'warning' %}
+            <span class="pill warn">80% — необязательные runs остановлены</span>
+          {% elif row.budget.level == 'soft' %}
+            <span class="pill warn">50% — контроль контекста</span>
+          {% else %}
+            <span class="pill ok">в пределах</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endfor %}
+
+{% endblock %}

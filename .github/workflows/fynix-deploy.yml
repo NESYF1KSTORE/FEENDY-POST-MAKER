@@ -1,0 +1,62 @@
+name: FYNIX Deploy
+
+# Manual deployment to the target server over SSH.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   DEPLOY_HOST        server IP or hostname
+#   DEPLOY_USER        SSH user (usually root)
+#   DEPLOY_SSH_KEY     private key with access to the server
+#   DEPLOY_DOMAIN      optional; omit to serve plain HTTP on the IP
+#
+# A key is required — this workflow deliberately does not accept a password.
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Domain for TLS (leave empty to serve HTTP on the IP)"
+        required: false
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Sync sources to the server
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes" \
+            --exclude '.venv' --exclude '__pycache__' --exclude '.env' \
+            --exclude '.pytest_cache' --exclude '.ruff_cache' \
+            fynix/ \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/fynix/fynix/"
+
+      - name: Run the installer
+        run: |
+          DOMAIN="${{ inputs.domain || secrets.DEPLOY_DOMAIN }}"
+          ARGS=""
+          [ -n "$DOMAIN" ] && ARGS="--domain $DOMAIN"
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "cd /opt/fynix/fynix && SKIP_CLONE=1 bash deploy/install.sh $ARGS"
+
+      - name: Verify the deployment is healthy
+        run: |
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "cd /opt/fynix/fynix && docker compose exec -T api curl -fsS http://127.0.0.1:8000/health/ready"
+
+      - name: Clean up the key
+        if: always()
+        run: rm -f ~/.ssh/id_deploy
