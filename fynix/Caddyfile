@@ -1,0 +1,30 @@
+# TLS is issued and renewed automatically for {$FYNIX_DOMAIN}.
+# Point the domain's A record at the server before the first start; until then
+# use `FYNIX_DOMAIN=:80` in .env to run over plain HTTP.
+
+{$FYNIX_DOMAIN} {
+	encode zstd gzip
+
+	# Security headers. HSTS is only meaningful once TLS is actually in use.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
+	# Prometheus scraping is internal; do not expose it publicly by default.
+	@metrics path /metrics
+	respond @metrics 403
+
+	reverse_proxy api:8000 {
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

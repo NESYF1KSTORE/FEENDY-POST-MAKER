@@ -1,0 +1,76 @@
+name: FYNIX CI
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "fynix/**"
+      - ".github/workflows/fynix-ci.yml"
+  pull_request:
+    paths:
+      - "fynix/**"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fynix
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: fynix/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check app tests
+
+      - name: Test
+        # The suite runs fully offline against the mock provider: no API keys,
+        # no network, no spend.
+        run: pytest -q
+
+      - name: Verify migrations apply from scratch
+        env:
+          DATABASE_URL: sqlite:///./ci.db
+          JWT_SECRET: ci-secret-long-enough-for-the-check-0123456789
+        run: alembic upgrade head
+
+      - name: End-to-end pipeline smoke test
+        env:
+          FYNIX_ENV: dev
+          DATABASE_URL: sqlite:///./smoke.db
+          JWT_SECRET: ci-secret-long-enough-for-the-check-0123456789
+          AI_DEFAULT_PROVIDER: mock
+          ARTIFACT_DIR: /tmp/fynix/artifacts
+          RUNNER_WORKSPACE_ROOT: /tmp/fynix/workspaces
+          BOOTSTRAP_ADMIN_PASSWORD: ci-bootstrap-password-123
+        run: |
+          alembic upgrade head
+          python -m app.cli bootstrap --slug fynix
+          python -m app.cli demo --cycles 40
+          python -m app.cli verify-audit --slug fynix
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t fynix-app:ci fynix
+
+      - name: Validate compose file
+        env:
+          FYNIX_DOMAIN: fynix.example.com
+          FYNIX_BASE_URL: https://fynix.example.com
+          POSTGRES_PASSWORD: ci-password
+          JWT_SECRET: ci-secret-long-enough-for-the-check-0123456789
+        run: docker compose -f fynix/docker-compose.yml config --quiet

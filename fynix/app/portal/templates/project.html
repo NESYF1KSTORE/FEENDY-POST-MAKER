@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} — FYNIX{% endblock %}
+{% block content %}
+
+<p><a href="/portal">← Все проекты</a></p>
+<h1>{{ project.name }}</h1>
+<p class="muted">{{ project.id }} · golden path: {{ project.golden_path or '—' }} · класс данных: {{ project.data_class }}</p>
+
+<div class="grid">
+  <div class="card">
+    <div class="muted">Состояние</div>
+    <div class="kpi">{{ project.state }}</div>
+    {% if gate.passed %}
+      <span class="pill ok">exit gate пройден: {{ gate.reason }}</span>
+    {% else %}
+      <span class="pill warn">gate не пройден: {{ gate.reason }}</span>
+    {% endif %}
+  </div>
+  <div class="card">
+    <div class="muted">Прогресс</div>
+    <div class="kpi">{{ progress.done }}/{{ progress.total }}</div>
+    <div class="bar"><i style="width: {{ progress.percent }}%"></i></div>
+  </div>
+  <div class="card">
+    <div class="muted">Бюджет, ₽</div>
+    <div class="kpi">{{ budget.spent }}</div>
+    <div class="muted">лимит {{ budget.limit }} · {{ budget.usage_pct }}%</div>
+  </div>
+</div>
+
+{% if gate.evidence %}
+<div class="card">
+  <div class="muted">Доказательства gate</div>
+  <pre>{{ gate.evidence|tojson(indent=2) }}</pre>
+</div>
+{% endif %}
+
+<h2>Согласования</h2>
+<div class="card scroll">
+  {% if not approvals %}<div class="empty">Согласований не запрашивалось</div>{% endif %}
+  {% if approvals %}
+  <table>
+    <tr><th>Субъект</th><th>Роль</th><th>Очередь</th><th>Статус</th><th>Кто решил</th><th></th></tr>
+    {% for a in approvals %}
+    <tr>
+      <td><code>{{ a.subject_type }}</code><br><span class="muted">{{ a.subject_id }}</span></td>
+      <td>{{ a.required_role }}</td>
+      <td class="muted">{{ a.sequence }}</td>
+      <td>
+        <span class="pill {% if a.status == 'approved' %}ok{% elif a.status in ('rejected','expired') %}bad{% elif a.status == 'stale' %}warn{% else %}info{% endif %}">{{ a.status }}</span>
+      </td>
+      <td class="muted">{{ a.decided_by or '—' }}</td>
+      <td>
+        {% if a.status == 'pending' %}
+        <form class="inline" method="post" action="/portal/approvals/{{ a.id }}/decide">
+          <input type="hidden" name="decision" value="approve">
+          <button class="btn primary" type="submit">Утвердить</button>
+        </form>
+        <form class="inline" method="post" action="/portal/approvals/{{ a.id }}/decide">
+          <input type="hidden" name="decision" value="reject">
+          <button class="btn danger" type="submit">Отклонить</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+<h2>Бриф</h2>
+<div class="card scroll">
+  {% if not briefs %}<div class="empty">Бриф ещё не подавался</div>{% endif %}
+  {% if briefs %}
+  <table>
+    <tr><th>Версия</th><th>Полнота</th><th>Открытые вопросы</th><th>Создан</th></tr>
+    {% for b in briefs %}
+    <tr>
+      <td>v{{ b.version }}</td>
+      <td><span class="pill {% if b.completeness >= 80 %}ok{% else %}warn{% endif %}">{{ b.completeness }}/100</span></td>
+      <td>
+        {% for q in b.open_questions[:4] %}<div>· {{ q.question if q is mapping else q }}</div>{% endfor %}
+        {% if b.open_questions|length > 4 %}<div class="muted">…ещё {{ b.open_questions|length - 4 }}</div>{% endif %}
+      </td>
+      <td class="muted">{{ b.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+<h2>Blueprint</h2>
+<div class="card scroll">
+  {% if not blueprints %}<div class="empty">Blueprint не сформирован</div>{% endif %}
+  {% for bp in blueprints %}
+  <div style="border-bottom:1px solid var(--line); padding:10px 0;">
+    <strong>v{{ bp.version }}</strong>
+    {% if bp.is_stale %}<span class="pill warn">устарел</span>{% else %}<span class="pill ok">актуален</span>{% endif %}
+    <div class="muted">{{ bp.summary }}</div>
+    <div class="muted">задач в backlog: {{ bp.backlog|length }} · NFR: {{ bp.nfr|length }} · рисков: {{ bp.risks|length }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<h2>Задачи</h2>
+<div class="card scroll">
+  {% if not tasks %}<div class="empty">DAG задач ещё не построен</div>{% endif %}
+  {% if tasks %}
+  <table>
+    <tr><th>Ключ</th><th>Задача</th><th>Исполнитель</th><th>Статус</th><th>Попытки</th></tr>
+    {% for t in tasks %}
+    <tr>
+      <td><code>{{ t.key }}</code></td>
+      <td>{{ t.title }}</td>
+      <td class="muted">{{ t.executor }}{% if t.agent_type %} / {{ t.agent_type }}{% endif %}</td>
+      <td>
+        <span class="pill {% if t.status == 'done' %}ok{% elif t.status in ('failed','cancelled') %}bad{% elif t.status in ('review','awaiting_approval') %}warn{% else %}info{% endif %}">{{ t.status }}</span>
+      </td>
+      <td class="muted">{{ t.attempts }}/{{ t.max_attempts }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+<h2>Agent runs</h2>
+<div class="card scroll">
+  {% if not runs %}<div class="empty">Запусков не было</div>{% endif %}
+  {% if runs %}
+  <table>
+    <tr><th>Агент</th><th>Модель</th><th>Статус</th><th>Токены</th><th>₽</th><th>Время</th></tr>
+    {% for r in runs %}
+    <tr>
+      <td>{{ r.agent_type }}</td>
+      <td class="muted">{{ r.model_profile.get('provider', '—') }}/{{ r.model_profile.get('model', '—') }}</td>
+      <td><span class="pill {% if r.status == 'succeeded' %}ok{% elif r.status == 'failed' %}bad{% else %}info{% endif %}">{{ r.status }}</span></td>
+      <td class="muted">{{ r.prompt_tokens + r.completion_tokens }}</td>
+      <td class="muted">{{ '%.4f'|format(r.cost_rub) }}</td>
+      <td class="muted">{{ r.latency_ms }} ms</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+<h2>Релизы и деплои</h2>
+<div class="card scroll">
+  {% if not releases %}<div class="empty">Релизов нет</div>{% endif %}
+  {% if releases %}
+  <table>
+    <tr><th>Версия</th><th>Digest</th><th>Evidence</th><th>SBOM</th><th>Создан</th></tr>
+    {% for rel in releases %}
+    <tr>
+      <td><strong>{{ rel.version }}</strong></td>
+      <td class="muted"><code>{{ rel.artifact_digest[:24] }}…</code></td>
+      <td>{% if rel.evidence_artifact_id %}<a href="/v1/releases/{{ rel.id }}/evidence">bundle</a>{% else %}<span class="pill warn">нет</span>{% endif %}</td>
+      <td class="muted">{{ 'да' if rel.sbom_artifact_id else '—' }}</td>
+      <td class="muted">{{ rel.created_at.strftime('%d.%m %H:%M') }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {% if deployments %}
+  <table style="margin-top:16px;">
+    <tr><th>Деплой</th><th>Стратегия</th><th>Статус</th><th>Причина</th><th>Когда</th></tr>
+    {% for d in deployments %}
+    <tr>
+      <td class="muted"><code>{{ d.id[:16] }}</code></td>
+      <td>{{ d.strategy }}</td>
+      <td><span class="pill {% if d.status == 'healthy' %}ok{% elif d.status in ('failed','rolled_back') %}bad{% else %}info{% endif %}">{{ d.status }}</span></td>
+      <td class="muted">{{ d.reason or '—' }}</td>
+      <td class="muted">{{ d.created_at.strftime('%d.%m %H:%M') }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+{% endblock %}

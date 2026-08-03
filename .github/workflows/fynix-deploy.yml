@@ -1,0 +1,182 @@
+name: FYNIX Deploy
+
+# Deploys FYNIX to the target server over SSH. Run it from the Actions tab:
+# Actions → "FYNIX Deploy" → Run workflow.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   DEPLOY_HOST       server IP or hostname
+#   DEPLOY_USER       SSH user (usually root)
+#
+# Then EITHER of these — a key is strongly preferred:
+#   DEPLOY_SSH_KEY    private key with access to the server
+#   DEPLOY_PASSWORD   SSH password (used only if no key is set)
+#
+# Optional:
+#   DEPLOY_DOMAIN     domain for TLS; without it the portal is served over
+#                     plain HTTP on the server's IP
+#
+# A password stored as a repository secret is readable by anyone who can add a
+# workflow to this repo. After the first successful deploy, run the
+# "harden-ssh" step output: it installs a deploy key and lets you delete
+# DEPLOY_PASSWORD.
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Domain for TLS (leave empty to serve HTTP on the IP)"
+        required: false
+        type: string
+      run_smoke_test:
+        description: "Run the offline end-to-end pipeline after deploying"
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: fynix-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that credentials are configured
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
+        run: |
+          [ -n "$HOST" ] || { echo "::error::DEPLOY_HOST secret is not set"; exit 1; }
+          if [ -z "$KEY" ] && [ -z "$PASSWORD" ]; then
+            echo "::error::set either DEPLOY_SSH_KEY (preferred) or DEPLOY_PASSWORD"
+            exit 1
+          fi
+          if [ -z "$KEY" ]; then
+            echo "::warning::deploying with a password; switch to DEPLOY_SSH_KEY afterwards"
+          fi
+
+      - name: Configure SSH
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          # Pin the host key on first contact so later steps verify it.
+          ssh-keyscan -T 15 -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          if [ -n "$KEY" ]; then
+            printf '%s\n' "$KEY" > ~/.ssh/id_deploy
+            chmod 600 ~/.ssh/id_deploy
+            echo "SSH_AUTH=key" >> "$GITHUB_ENV"
+          else
+            sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
+            echo "SSH_AUTH=password" >> "$GITHUB_ENV"
+          fi
+
+      - name: Sync sources to the server
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER_NAME: ${{ secrets.DEPLOY_USER }}
+          SSHPASS: ${{ secrets.DEPLOY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ "$SSH_AUTH" = "key" ]; then
+            RSH="ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes"
+          else
+            RSH="sshpass -e ssh -o StrictHostKeyChecking=yes"
+          fi
+          # --delete keeps the server's checkout identical to this commit;
+          # .env is excluded so secrets and data survive every redeploy.
+          rsync -az --delete -e "$RSH" \
+            --exclude '.venv' --exclude '__pycache__' --exclude '.env' \
+            --exclude '.pytest_cache' --exclude '.ruff_cache' --exclude '*.db' \
+            fynix/ "${USER_NAME}@${HOST}:/opt/fynix/fynix/"
+
+      - name: Run the installer
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER_NAME: ${{ secrets.DEPLOY_USER }}
+          SSHPASS: ${{ secrets.DEPLOY_PASSWORD }}
+          DOMAIN_INPUT: ${{ inputs.domain }}
+          DOMAIN_SECRET: ${{ secrets.DEPLOY_DOMAIN }}
+        run: |
+          set -euo pipefail
+          DOMAIN="${DOMAIN_INPUT:-$DOMAIN_SECRET}"
+          ARGS=""
+          [ -n "$DOMAIN" ] && ARGS="--domain $DOMAIN"
+          if [ "$SSH_AUTH" = "key" ]; then
+            SSH="ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes"
+          else
+            SSH="sshpass -e ssh -o StrictHostKeyChecking=yes"
+          fi
+          # SKIP_CLONE: the sources were just rsynced; cloning would delete them.
+          $SSH "${USER_NAME}@${HOST}" \
+            "cd /opt/fynix/fynix && SKIP_CLONE=1 bash deploy/install.sh $ARGS"
+
+      - name: Verify the deployment is healthy
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER_NAME: ${{ secrets.DEPLOY_USER }}
+          SSHPASS: ${{ secrets.DEPLOY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ "$SSH_AUTH" = "key" ]; then
+            SSH="ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes"
+          else
+            SSH="sshpass -e ssh -o StrictHostKeyChecking=yes"
+          fi
+          $SSH "${USER_NAME}@${HOST}" 'cd /opt/fynix/fynix && \
+            docker compose ps && \
+            docker compose exec -T api curl -fsS http://127.0.0.1:8000/health/ready'
+
+      - name: Offline end-to-end pipeline check
+        if: ${{ inputs.run_smoke_test }}
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER_NAME: ${{ secrets.DEPLOY_USER }}
+          SSHPASS: ${{ secrets.DEPLOY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ "$SSH_AUTH" = "key" ]; then
+            SSH="ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes"
+          else
+            SSH="sshpass -e ssh -o StrictHostKeyChecking=yes"
+          fi
+          # Uses the mock provider: proves the whole conveyor works on this
+          # server without spending anything on a real model.
+          $SSH "${USER_NAME}@${HOST}" 'cd /opt/fynix/fynix && \
+            docker compose exec -T api python -m app.cli demo --cycles 40 && \
+            docker compose exec -T api python -m app.cli verify-audit --slug fynix'
+
+      - name: Summary
+        if: success()
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          DOMAIN_INPUT: ${{ inputs.domain }}
+          DOMAIN_SECRET: ${{ secrets.DEPLOY_DOMAIN }}
+        run: |
+          DOMAIN="${DOMAIN_INPUT:-$DOMAIN_SECRET}"
+          if [ -n "$DOMAIN" ]; then BASE="https://$DOMAIN"; else BASE="http://$HOST"; fi
+          {
+            echo "### FYNIX deployed"
+            echo ""
+            echo "- Portal: ${BASE}/portal"
+            echo "- API docs: ${BASE}/docs"
+            echo ""
+            echo "Admin credentials were **not** printed here on purpose."
+            echo "Read them on the server:"
+            echo ""
+            echo '```'
+            echo "grep BOOTSTRAP_ADMIN /opt/fynix/fynix/.env"
+            echo '```'
+            echo ""
+            echo "Change the admin password after the first login."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clean up credentials
+        if: always()
+        run: rm -f ~/.ssh/id_deploy

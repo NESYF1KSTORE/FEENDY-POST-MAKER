@@ -1,0 +1,136 @@
+name: fynix
+
+x-app-env: &app-env
+  FYNIX_ENV: ${FYNIX_ENV:-prod}
+  FYNIX_BASE_URL: ${FYNIX_BASE_URL:?set FYNIX_BASE_URL in .env}
+  FYNIX_LOG_LEVEL: ${FYNIX_LOG_LEVEL:-INFO}
+  DATABASE_URL: postgresql+psycopg://fynix:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/fynix
+  REDIS_URL: redis://redis:6379/0
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+  ARTIFACT_DIR: /var/lib/fynix/artifacts
+  RUNNER_WORKSPACE_ROOT: /var/lib/fynix/workspaces
+  RUNNER_DRIVER: ${RUNNER_DRIVER:-local}
+  AI_DEFAULT_PROVIDER: ${AI_DEFAULT_PROVIDER:-mock}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+  TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+  TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+  TELEGRAM_MODE: ${TELEGRAM_MODE:-polling}
+  DEFAULT_PROJECT_BUDGET_RUB: ${DEFAULT_PROJECT_BUDGET_RUB:-50000}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fynix
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: fynix
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fynix -d fynix"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Not published to the host: only the app network reaches the database.
+    expose:
+      - "5432"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    expose:
+      - "6379"
+
+  migrate:
+    build: .
+    image: fynix-app:latest
+    command: ["alembic", "upgrade", "head"]
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    image: fynix-app:latest
+    restart: unless-stopped
+    environment: *app-env
+    volumes:
+      - fynixdata:/var/lib/fynix
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    expose:
+      - "8000"
+
+  worker:
+    build: .
+    image: fynix-app:latest
+    restart: unless-stopped
+    command: ["python", "-m", "app.orchestrator.worker"]
+    environment: *app-env
+    volumes:
+      - fynixdata:/var/lib/fynix
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # The bot. Polling needs no public HTTPS endpoint, so it works on a fresh
+  # install before DNS exists. Switch TELEGRAM_MODE=webhook once you have a
+  # domain, then `docker compose stop bot` — the API serves the webhook.
+  bot:
+    build: .
+    image: fynix-app:latest
+    restart: unless-stopped
+    command: ["python", "-m", "app.telegram.poller"]
+    environment: *app-env
+    volumes:
+      - fynixdata:/var/lib/fynix
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    profiles: ["bot"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      FYNIX_DOMAIN: ${FYNIX_DOMAIN:?set FYNIX_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  redisdata:
+  fynixdata:
+  caddydata:
+  caddyconfig:

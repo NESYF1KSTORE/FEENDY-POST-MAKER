@@ -1,0 +1,30 @@
+[project]
+name = "fynix-ai-pipeline"
+version = "1.0.0"
+description = "FYNIX AI Pipeline — Control Plane for an AI-assisted digital project factory"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [".venv", "migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+    "E501",    # long lines are handled by the formatter, not the linter
+    "B008",    # FastAPI dependencies are function calls in defaults by design
+    "RUF001",  # Cyrillic text in strings is intentional
+    "RUF002",
+    "RUF003",
+    "SIM105",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]  # tests set environment variables before importing the app
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q --strict-markers"
+filterwarnings = ["ignore::DeprecationWarning"]

@@ -1,0 +1,106 @@
+"""SQLAlchemy models. Importing this package registers every table on `Base`."""
+
+from app.models.base import (
+    ApprovalStatus,
+    Base,
+    DataClass,
+    DeploymentStatus,
+    GateStatus,
+    JobStatus,
+    ProjectState,
+    Role,
+    RunStatus,
+    Severity,
+    TaskStatus,
+    new_id,
+    utcnow,
+)
+from app.models.delivery import (
+    ChangeSet,
+    Deployment,
+    Environment,
+    Incident,
+    QualityGateResult,
+    Release,
+    Repository,
+)
+from app.models.execution import (
+    AgentRun,
+    Artifact,
+    IdempotencyKey,
+    Job,
+    Operation,
+    RunnerWorkspace,
+)
+from app.models.finance import Budget, CostLedgerEntry, LicenseRecord
+from app.models.governance import Approval, AuditEvent, PolicyWaiver
+from app.models.identity import ApiToken, RoleBinding, Tenant, User
+from app.models.messaging import (
+    NotificationLog,
+    OutboxEvent,
+    ProcessedEvent,
+    WebhookSubscription,
+)
+from app.models.project import (
+    BlueprintVersion,
+    BriefVersion,
+    Project,
+    Task,
+    TaskDependency,
+)
+from app.models.telegram import (
+    TelegramChat,
+    TelegramLinkCode,
+    TelegramUpdateCursor,
+)
+
+__all__ = [
+    "AgentRun",
+    "ApiToken",
+    "Approval",
+    "ApprovalStatus",
+    "Artifact",
+    "AuditEvent",
+    "Base",
+    "BlueprintVersion",
+    "BriefVersion",
+    "Budget",
+    "ChangeSet",
+    "CostLedgerEntry",
+    "DataClass",
+    "Deployment",
+    "DeploymentStatus",
+    "Environment",
+    "GateStatus",
+    "IdempotencyKey",
+    "Incident",
+    "Job",
+    "JobStatus",
+    "LicenseRecord",
+    "NotificationLog",
+    "Operation",
+    "OutboxEvent",
+    "PolicyWaiver",
+    "ProcessedEvent",
+    "Project",
+    "ProjectState",
+    "QualityGateResult",
+    "Release",
+    "Repository",
+    "Role",
+    "RoleBinding",
+    "RunStatus",
+    "RunnerWorkspace",
+    "Severity",
+    "Task",
+    "TaskDependency",
+    "TaskStatus",
+    "TelegramChat",
+    "TelegramLinkCode",
+    "TelegramUpdateCursor",
+    "Tenant",
+    "User",
+    "WebhookSubscription",
+    "new_id",
+    "utcnow",
+]
