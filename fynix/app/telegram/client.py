@@ -22,6 +22,9 @@ log = get_logger("fynix.telegram")
 API_ROOT = "https://api.telegram.org"
 #: Telegram rejects messages longer than this.
 MAX_MESSAGE_LEN = 4096
+#: Cap on brief attachments. Telegram allows 20 MB; half of that is plenty for
+#: a requirements document and bounds what one chat can push into storage.
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -176,6 +179,44 @@ class TelegramClient:
 
     def get_webhook_info(self) -> dict:
         return self._call("getWebhookInfo", {})
+
+    # -- files -------------------------------------------------------------
+
+    def get_file(self, file_id: str) -> dict:
+        return self._call("getFile", {"file_id": file_id})
+
+    def download_file(self, file_path: str, max_bytes: int = MAX_ATTACHMENT_BYTES) -> bytes:
+        """Fetch an uploaded file, refusing anything over `max_bytes`.
+
+        The size is checked while streaming rather than trusting the header, so
+        a lying Content-Length cannot make the worker buffer an arbitrary file.
+        """
+        if not self._token:
+            raise ProviderError("TELEGRAM_BOT_TOKEN is not configured", permanent=True)
+        url = f"{API_ROOT}/file/bot{self._token}/{file_path}"
+        http = self._client or httpx.Client(timeout=60)
+        try:
+            with http.stream("GET", url) as response:
+                if response.status_code >= 400:
+                    raise ProviderError(
+                        f"telegram file download returned {response.status_code}",
+                        permanent=response.status_code < 500,
+                    )
+                buffer = bytearray()
+                for piece in response.iter_bytes():
+                    buffer.extend(piece)
+                    if len(buffer) > max_bytes:
+                        raise ProviderError(
+                            f"attachment exceeds {max_bytes // (1024 * 1024)} MB",
+                            permanent=True,
+                            details={"reason": "attachment_too_large"},
+                        )
+                return bytes(buffer)
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"telegram file transport error: {exc}") from exc
+        finally:
+            if self._client is None:
+                http.close()
 
     def get_updates(self, offset: int, timeout: int = 25, limit: int = 50) -> list[dict]:
         """Long polling. Used when the server has no public HTTPS endpoint."""

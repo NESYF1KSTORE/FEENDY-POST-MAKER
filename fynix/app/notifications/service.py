@@ -21,6 +21,7 @@ from app.models.base import Role, utcnow
 from app.models.governance import Approval
 from app.models.identity import RoleBinding
 from app.models.messaging import NotificationLog, OutboxEvent, WebhookSubscription
+from app.models.project import BriefVersion
 from app.models.telegram import TelegramChat
 from app.orchestrator import events
 
@@ -58,6 +59,7 @@ def send_telegram(
     chat_id: str = "",
     project_id: str | None = None,
     event_type: str = "",
+    reply_markup: dict | None = None,
     client: httpx.Client | None = None,
 ) -> NotificationLog:
     settings = get_settings()
@@ -79,12 +81,17 @@ def send_telegram(
         return record
 
     url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
+    payload: dict = {
+        "chat_id": target,
+        "text": record.body,
+        "disable_web_page_preview": True,
+    }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+
     http = client or httpx.Client(timeout=15)
     try:
-        response = http.post(
-            url,
-            json={"chat_id": target, "text": record.body, "disable_web_page_preview": True},
-        )
+        response = http.post(url, json=payload)
         if response.status_code >= 400:
             record.status = "failed"
             record.error = f"{response.status_code}: {response.text[:300]}"
@@ -259,14 +266,118 @@ def _chats_for_roles(
     return [chat.chat_id for chat in chats]
 
 
+def _approval_notifications(session: Session, event: OutboxEvent) -> int:
+    """Send each approver the decision they can act on, with buttons attached.
+
+    An approval that only says "something needs approving" costs a round trip
+    through /approvals. Sending the actionable keyboard straight to the person
+    who holds the role is what actually shortens time-to-decision — except for
+    the ones that need a second factor, which carry no buttons by design.
+    """
+    from app.telegram.client import keyboard
+    from app.telegram.handlers import approval_buttons  # local: avoids a cycle
+
+    approval_ids = (event.payload or {}).get("approval_ids") or []
+    if not approval_ids:
+        return 0
+
+    approvals = (
+        session.execute(select(Approval).where(Approval.id.in_(approval_ids))).scalars().all()
+    )
+    sent = 0
+    for approval in approvals:
+        try:
+            role = Role(approval.required_role)
+        except ValueError:
+            continue
+        chats = _chats_for_roles(session, event.tenant_id, (role,), approval.project_id)
+        if not chats:
+            continue
+
+        buttons = approval_buttons(approval)
+        needs_portal = not buttons
+        text = (
+            f"🧭 Требуется решение: {approval.subject_type}\n"
+            f"проект {approval.project_id}\n"
+            f"роль {approval.required_role}"
+            + ("\n🔒 требует второго фактора — решается в портале" if needs_portal else "")
+        )
+        for chat_id in chats:
+            send_telegram(
+                session,
+                tenant_id=event.tenant_id,
+                text=text,
+                chat_id=chat_id,
+                project_id=approval.project_id,
+                event_type=event.type,
+                reply_markup=keyboard(buttons) if buttons else None,
+            )
+            sent += 1
+    return sent
+
+
+def _clarification_notification(session: Session, event: OutboxEvent) -> int:
+    """Tell the client that the analyst has questions, with a button to answer.
+
+    This closes the FR-003 loop inside Telegram: brief in, questions out,
+    answers back, new brief version.
+    """
+    from app.telegram.client import Button, keyboard
+    from app.telegram.handlers import CALLBACK_CLARIFY
+
+    payload = event.payload or {}
+    if not payload.get("open_questions"):
+        return 0
+
+    brief = session.get(BriefVersion, payload.get("brief_version_id", ""))
+    if brief is None or not brief.created_by:
+        return 0
+
+    chat = session.execute(
+        select(TelegramChat).where(
+            TelegramChat.tenant_id == event.tenant_id,
+            TelegramChat.user_id == brief.created_by,
+            TelegramChat.unlinked_at.is_(None),
+        )
+    ).scalar_one_or_none()
+    if chat is None:
+        return 0
+
+    send_telegram(
+        session,
+        tenant_id=event.tenant_id,
+        text=(
+            f"💬 По брифу v{payload.get('version')} есть "
+            f"{payload['open_questions']} уточняющих вопрос(ов). "
+            f"Полнота: {payload.get('completeness')}/100 — ответы поднимут её."
+        ),
+        chat_id=chat.chat_id,
+        project_id=event.project_id,
+        event_type=event.type,
+        reply_markup=keyboard(
+            [[Button("💬 Ответить на вопросы", f"{CALLBACK_CLARIFY}:{event.project_id}")]]
+        ),
+    )
+    return 1
+
+
 def _on_event(session: Session, event: OutboxEvent) -> None:
+    if event.type == events.BRIEF_VERSION_CREATED:
+        _clarification_notification(session, event)
+        deliver_webhooks(session, event)
+        return
+
+    targeted = _approval_notifications(session, event)
+
     text = render(event)
     if text:
         settings = get_settings()
         targets: list[str] = []
 
-        roles = _roles_for_event(session, event)
-        targets.extend(_chats_for_roles(session, event.tenant_id, roles, event.project_id))
+        # Approvals were already delivered individually with their keyboards.
+        if not targeted:
+            roles = _roles_for_event(session, event)
+            targets.extend(_chats_for_roles(session, event.tenant_id, roles, event.project_id))
 
         # The shared operations chat still sees everything, if configured.
         if settings.telegram_chat_id:
@@ -274,7 +385,7 @@ def _on_event(session: Session, event: OutboxEvent) -> None:
 
         # No linked chats and no shared chat: record the skip so a missed
         # escalation is visible rather than silent.
-        for chat_id in dict.fromkeys(targets) or [""]:
+        for chat_id in dict.fromkeys(targets) or ([] if targeted else [""]):
             send_telegram(
                 session,
                 tenant_id=event.tenant_id,

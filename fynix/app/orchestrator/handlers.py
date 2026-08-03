@@ -126,6 +126,7 @@ def analyze_brief(session: Session, job: Job) -> dict:
         risks=output.get("risks", []),
         checksum=checksum(payload),
         created_by=job.payload.get("actor_id", ""),
+        attachments=job.payload.get("attachments") or [],
     )
     session.add(brief)
     session.flush()

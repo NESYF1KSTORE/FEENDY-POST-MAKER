@@ -73,6 +73,7 @@ def submit_brief(
     project: Project,
     raw_text: str,
     answers: dict[str, str] | None = None,
+    attachments: list[dict] | None = None,
     source: str = "portal",
 ) -> Operation:
     """Queue brief analysis and return the operation handle.
@@ -104,6 +105,7 @@ def submit_brief(
             "answers": answers or {},
             "actor_id": principal.user_id,
             "operation_id": operation.id,
+            "attachments": attachments or [],
             "source": source,
         },
         correlation_id=operation.id,

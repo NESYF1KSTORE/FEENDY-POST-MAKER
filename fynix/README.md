@@ -20,7 +20,7 @@ security-gates и подтверждение ответственного чел
 | §4 Архитектура | Модульный монолит + фоновые jobs; ports/adapters для Git, AI, runner'ов и хранилища |
 | §5 AI-оркестрация | 10 типов агентов, единый AI Gateway, маршрутизация по риску/классу данных, защита от prompt injection |
 | §6 FR-001…FR-025 | Tenant onboarding, intake, clarification, blueprint, approvals, task DAG, agent runs, code delivery, gates, evidence, environments, deploy, cost control, audit, API, webhooks |
-| §4.2 Telegram-интерфейс | Бот: подача брифа, статусы, бюджеты, утверждение blueprint кнопкой; привязка чата одноразовым кодом; polling и webhook — [TELEGRAM.md](TELEGRAM.md) |
+| §4.2, §23 Telegram-интерфейс | Бот: чек-лист брифа, вложения, цикл уточнений FR-003, статусы, задачи, релизы, инциденты, бюджеты, утверждение кнопкой в самом уведомлении — [TELEGRAM.md](TELEGRAM.md) |
 | §8 Данные | 25 сущностей, классификация данных, tenant isolation в запросах, кэше и хранилище |
 | §9 API и события | Versioned REST API с Idempotency-Key, доменные события через transactional outbox с DLQ |
 | §10 Безопасность | RBAC+ABAC deny-by-default, MFA на привилегированных действиях, изоляция runner'ов, редакция секретов, tamper-evident audit |
@@ -128,11 +128,11 @@ fynix/
 │   ├── delivery/            окружения, релизы, деплой, откат, drift
 │   ├── runners/             sandbox: local и docker-драйверы
 │   ├── api/v1/              REST API §9.1
-│   ├── telegram/            бот: клиент Bot API, привязка чатов, команды, поллер
+│   ├── telegram/            бот: Bot API, привязка чатов, чек-лист брифа, команды, поллер
 │   ├── portal/              портал и админ-консоль (Jinja2, без сборки)
 │   └── cli.py               bootstrap · demo · worker · telegram-* · verify-audit
 ├── migrations/              Alembic
-├── tests/                   142 теста
+├── tests/                   162 теста
 ├── deploy/                  install.sh (на сервере) · push.sh (по SSH)
 ├── TELEGRAM.md              инструкция по боту
 ├── Dockerfile · docker-compose.yml · Caddyfile
@@ -257,7 +257,7 @@ POST   /v1/telegram/webhook                      подпись сверяетс
 ## Разработка
 
 ```bash
-.venv/bin/python -m pytest                # 142 теста
+.venv/bin/python -m pytest                # 162 теста
 .venv/bin/python -m ruff check app tests  # линт
 .venv/bin/alembic revision --autogenerate -m "..."
 ```
@@ -283,9 +283,11 @@ PostgreSQL одинаковое.
 - **GitHub/GitLab драйвер.** Repository Adapter работает с локальным bare-репозиторием.
   Интерфейс тот же, драйвер добавляется отдельно (решение D-03).
 - **Автопроверка восстановления из бэкапа** (AC-12) — процедура есть, расписания нет.
-- **Telegram Mini App.** Бот покрывает подачу брифа, статусы и утверждение blueprint.
+- **Telegram Mini App.** Бот покрывает интейк, уточнения, статусы и согласования.
   Портал внутри Telegram с авторизацией через `initData` не сделан — открывается
   в браузере.
+- **Ручные задачи в боте** (FR-010). Задачи с `executor=human` видны в `/tasks`,
+  но взять их в работу и закрыть из Telegram пока нельзя — это делается в портале.
 
 ---
 
